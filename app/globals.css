@@ -1,0 +1,86 @@
+@import "tailwindcss";
+
+:root {
+  /* Krem hangat & bersih — selaras dengan nuansa kanvas tenda & alam bebas */
+  --background: #fbf9f5;
+  --surface: #ffffff;
+  --surface-alt: #f3efe6;
+  --foreground: #1c211a;
+  --foreground-muted: #576152;
+
+  /* Palet warna brand: Deep Forest Green + Adventure Terracotta / Amber */
+  --brand-primary: #224a27;
+  --brand-primary-dark: #153218;
+  --brand-primary-light: #3b6c41;
+  --brand-primary-tint: #eaf3eb;
+  --brand-accent: #e26c36;
+  --brand-accent-dark: #c45421;
+  --brand-accent-light: #fef0e9;
+
+  --border-subtle: #e5dfd3;
+
+  /* Font sistem modern, bersih, dan tegas — tanpa perlu request Google Fonts eksternal */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Plus Jakarta Sans", Arial, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Plus Jakarta Sans", Arial, sans-serif;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-alt: var(--surface-alt);
+  --color-foreground: var(--foreground);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-brand-primary: var(--brand-primary);
+  --color-brand-primary-dark: var(--brand-primary-dark);
+  --color-brand-primary-light: var(--brand-primary-light);
+  --color-brand-primary-tint: var(--brand-primary-tint);
+  --color-brand-accent: var(--brand-accent);
+  --color-brand-accent-dark: var(--brand-accent-dark);
+  --color-brand-accent-light: var(--brand-accent-light);
+  --color-border-subtle: var(--border-subtle);
+  --font-sans: var(--font-sans);
+  --font-display: var(--font-display);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background-color: var(--brand-primary);
+  color: #ffffff;
+}
+
+/* Motif garis kontur peta topografi — elemen dekoratif berulang bertema outdoor */
+.contour-bg {
+  background-image:
+    repeating-radial-gradient(circle at 15% 30%, transparent 0, transparent 24px, rgba(34, 74, 39, 0.045) 25px, transparent 26px, transparent 50px),
+    repeating-radial-gradient(circle at 85% 75%, transparent 0, transparent 32px, rgba(34, 74, 39, 0.04) 33px, transparent 34px, transparent 65px);
+}
+
+.font-display {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .hero-fade {
+    animation: hero-fade 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+}
+
+@keyframes hero-fade {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
