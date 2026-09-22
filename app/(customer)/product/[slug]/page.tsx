@@ -121,22 +121,9 @@ export default async function ProductDetailPage({
             </p>
           </div>
 
-          {/* Stock availability */}
-          <div className="flex items-center gap-2 text-xs">
-            <span className="font-medium text-foreground-muted">Ketersediaan saat ini:</span>
-            {product.stock > 0 ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-0.5 font-bold text-emerald-800">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />
-                Tersedia {product.stock} unit
-              </span>
-            ) : (
-              <span className="inline-flex items-center rounded-full bg-stone-200 px-2.5 py-0.5 font-bold text-stone-700">
-                Stok Habis
-              </span>
-            )}
-          </div>
-
-          {/* Add to Cart Form */}
+          {/* Add to Cart Form — info ketersediaan stok dipindah ke dalam
+              form (tepat di bawah pemilih jumlah), seperti online shop
+              pada umumnya. */}
           <div className="border-t border-border-subtle/80 pt-6">
             <AddToCartForm product={product} />
           </div>

@@ -30,7 +30,7 @@ kelola produk/kategori/booking.
 | Database (dev) | SQLite | Tidak perlu server DB terpisah, cocok untuk demo lokal |
 | Backend API | Next.js Route Handlers (`app/api/**`) | Tidak perlu server terpisah |
 | State keranjang | React Context (bukan Redux/Zustand) | Skalanya kecil, cukup Context untuk demo |
-| Auth admin | Belum diimplementasikan (rencana: session/cookie manual, bukan NextAuth) | Akan dijelaskan detail di Phase 9 |
+| Auth admin | Session cookie manual (HMAC-SHA256 via Web Crypto), tanpa NextAuth | Credential dari env `ADMIN_EMAIL`/`ADMIN_PASSWORD` (fallback tabel `User`) — diimplementasikan Phase 9 di `lib/auth.ts` |
 
 **Prinsip:** tidak menambah library baru tanpa alasan jelas. Setiap
 tambahan dependency baru akan dicatat di bagian "Keputusan Teknis" di
@@ -49,11 +49,11 @@ bawah.
 | 5 | Catalog + search + filter | ✅ Selesai |
 | 6 | Product detail + cart | ✅ Selesai |
 | 7 | Booking system + kalkulasi harga | ✅ Selesai |
-| 8 | WhatsApp booking | 🟡 Sebagian — lihat catatan Bagian 4d (ringkasan booking sudah ada, konfirmasi WA otomatis belum) |
-| 9 | Admin authentication | ⬜ Belum dimulai |
-| 10 | Admin dashboard + CRUD produk/kategori | ⬜ Belum dimulai |
-| 11 | Admin booking management | ⬜ Belum dimulai |
-| 12 | Validation, error handling, responsive, final testing | ⬜ Belum dimulai |
+| 8 | WhatsApp booking | ✅ Selesai |
+| 9 | Admin authentication | ✅ Selesai |
+| 10 | Admin dashboard + CRUD produk/kategori | ✅ Selesai |
+| 11 | Admin booking management | ✅ Selesai |
+| 12 | Validation, error handling, responsive, final testing | 🟡 Sebagian — validasi/error handling admin, build, lint & uji HTTP lulus; cek visual browser manual masih perlu (lihat catatan Bagian 4e) |
 
 ---
 
@@ -378,64 +378,244 @@ dicoba end-to-end di komputer lokal** (langkah ada di Bagian 9).
 
 ---
 
+## 4e. Fitur yang Sudah Selesai (Phase 8–11 — WhatsApp, Auth & Panel Admin)
+
+Dikerjakan dalam satu sesi lanjutan (Phase 8, 9, 10, 11) plus beberapa
+permintaan UI tambahan dari pemilik project. **Schema Prisma TIDAK
+berubah** (tidak ada model/field yang dihapus), **tidak ada dependency
+baru**, dan fitur customer lama tidak diutak-atik kecuali perubahan
+kecil yang diminta eksplisit (lihat bagian "Perubahan UI customer").
+
+### Phase 8 — Konfirmasi WhatsApp
+- [x] `lib/whatsapp.ts` (baru):
+  - `getAdminWhatsAppNumber()` — nomor admin dari **env
+    `WHATSAPP_ADMIN_NUMBER`** (TIDAK pernah hardcode); normalisasi: buang
+    simbol, awalan `0` → `62`.
+  - `buildBookingWhatsAppMessage()` — pesan berisi: nama customer, nomor
+    WhatsApp, produk + jumlah unit, tanggal mulai, tanggal selesai,
+    durasi, **total harga**, catatan, dan ID booking.
+  - `getWhatsAppBookingLink()` — link `https://wa.me/<nomor>?text=...`.
+- [x] Tombol **"Kirim ke WhatsApp Admin"** di halaman
+  `booking/success` (buka tab baru). Jika env belum diisi → tombol tampil
+  nonaktif + petunjuk pengaturan env (halaman tetap aman, tanpa error).
+- [x] `formatTanggal()` dipindah ke `lib/utils.ts` (dipakai bersama
+  ringkasan booking, pesan WA, dan halaman admin; ditambah
+  `timeZone: "UTC"` supaya tanggal tidak bergeser di server non-WIB).
+
+### Phase 9 — Admin Authentication
+- [x] `lib/auth.ts` diimplementasi penuh, tetap tanpa library auth:
+  - **Credential**: utama dari env `ADMIN_EMAIL` & `ADMIN_PASSWORD`
+    (perbandingan constant-time); fallback ke tabel `User` bila env
+    kosong (password hash **PBKDF2-SHA256** via Web Crypto, format
+    `pbkdf2$<iterasi>$<salt>$<hash>`; helper `hashPassword` tersedia
+    untuk menanam akun admin nanti lewat script).
+  - **Session**: cookie HttpOnly `tapak_admin_session` (berlaku 7 hari)
+    berisi `base64url(payload).signature`, ditandatangani HMAC-SHA256
+    dengan secret `AUTH_SECRET` (fallback `ADMIN_PASSWORD`) memakai Web
+    Crypto bawaan — aman dipakai di Node maupun Edge, tanpa tabel
+    session, tanpa dependency.
+  - **Proteksi 2 lapis**: (1) `app/admin/(panel)/layout.tsx` redirect
+    halaman panel ke `/admin/login` bila session tidak valid; (2) setiap
+    route handler tulis admin memanggil `getAdminSession()` dan membalas
+    **401**. Halaman login berada **di luar** route group `(panel)`
+    sehingga tetap terjangkau, sementara URL panel tidak berubah.
+- [x] `POST /api/auth/login` (set cookie) & `POST /api/auth/logout`
+  (hapus cookie + redirect 303, dipanggil form HTML di `AdminNav`).
+- [x] Halaman login asli `/admin/login` + `components/admin/LoginForm`.
+- Env demo di `.env` (dibuat karena sebelumnya belum ada):
+  `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `AUTH_SECRET`,
+  `WHATSAPP_ADMIN_NUMBER` (semua juga didokumentasikan di
+  `.env.example`).
+
+### Phase 10 — Admin Dashboard + CRUD Produk/Kategori
+- [x] Dashboard (`/admin/dashboard`): kartu ringkasan **jumlah produk,
+  jumlah kategori, jumlah booking, booking pending** + tabel **booking
+  terbaru** (5 terakhir) — query di `lib/admin.ts`
+  (`getAdminStats`, `getBookings`).
+- [x] `lib/admin.ts` — data layer admin: stats, daftar/detail booking,
+  CRUD produk & kategori (validasi server-side, pesan error Bahasa
+  Indonesia, pemetaan kode Prisma P2003/P2025/P2002).
+- [x] CRUD Produk (`/admin/products` + `ProductsManager`): daftar
+  (thumbnail, kategori, harga, stok), tambah, edit, hapus — field: nama,
+  deskripsi, harga/hari, stok, kategori, gambar.
+  - Slug dibuat otomatis dari nama saat **create** (unik; suffix `-2`,
+    `-3`, ...) dan **tidak pernah diubah saat edit** supaya link
+    `/product/<slug>` yang sudah dibagikan tidak pecah.
+  - Hapus produk yang direferensikan `BookingItem` **ditolak** (histori
+    booking harus tetap utuh).
+- [x] **Upload gambar produk** (permintaan tambahan: admin tidak perlu
+  mengetik path file):
+  - `POST /api/upload` (admin-only): `multipart/form-data` via
+    `request.formData()` bawaan Next + `fs/promises` Node (**tanpa
+    dependency baru**), validasi tipe (JPG/PNG/WebP/GIF) & ukuran
+    (maks 2 MB), nama file di-slugify + suffix unik (anti path
+    traversal), disimpan ke `public/images/products/` — folder yang sama
+    yang sudah diharapkan `ProductImage.tsx` & data seed.
+  - Form produk: input path manual **diganti** input file + preview
+    (object URL lokal — tidak ada file sampah batal upload); upload
+    dijalankan saat tombol Simpan ditekan, hasil URL dipakai sebagai
+    `Product.image`. Tersedia tombol "Batalkan file ini" & "Hapus gambar".
+- [x] CRUD Kategori (`/admin/categories` + `CategoriesManager`): daftar
+  (dengan jumlah produk), tambah, edit nama, hapus. Slug otomatis dari
+  nama saat create; slug tidak diubah saat edit. Hapus kategori berisi
+  produk **ditolak**.
+
+### Phase 11 — Booking Management
+- [x] `types/index.ts` + `BOOKING_STATUS_TRANSITIONS`:
+  `PENDING → CONFIRMED → ONGOING → COMPLETED`; `CANCELLED` bisa dari
+  PENDING/CONFIRMED/ONGOING; `COMPLETED` & `CANCELLED` bersifat **final**
+  (label Bahasa Indonesia ikut ditambahkan di sini).
+- [x] `PATCH /api/bookings/[id]` (admin-only) → `updateBookingStatus`
+  di `lib/admin.ts`: validasi status + cek transisi dalam **satu
+  transaksi Prisma**; **stok produk otomatis dikembalikan saat booking
+  di-CANCELLED** (dan karena CANCELLED final, stok tidak mungkin
+  dikembalikan dua kali).
+- [x] Halaman `/admin/bookings` (tabel `BookingTable` + badge
+  `StatusBadge`) dan `/admin/bookings/[id]` (data pelanggan, item, total,
+  catatan) + `BookingStatusChanger` (tombol hanya menawarkan transisi
+  yang diizinkan; tombol Batalkan pakai konfirmasi).
+
+### Perubahan UI customer (diminta eksplisit oleh pemilik project)
+- [x] Tombol **"Sewa Sekarang"** di `AddToCartForm`: produk & jumlah
+  langsung dimasukkan ke cart (form booking membaca `CartContext`) lalu
+  user dibawa **langsung ke `/booking` — tanpa mampir halaman keranjang**.
+  Tombol "Tambah ke Keranjang" & "Buka Keranjang" tetap tersedia.
+- [x] Info stok **"Tersedia N unit" dipindahkan ke BAWAH pemilih jumlah**
+  (sebelumnya menempel di atas form, di bawah deskripsi) — mengikuti pola
+  online shop. Ditambah catatan "X sudah di keranjang" bila ada.
+
+### Hasil verifikasi (di lingkungan ini; Prisma Client sudah ter-generate)
+1. `npx prisma validate` → schema valid.
+2. `npx prisma generate` → **berhasil** (engine terunduh — kendala lama di
+   Bagian 8 sudah teratasi; `@prisma/client` kini bertipe penuh).
+3. `npx prisma db seed` → **berhasil dijalankan PERTAMA KALINYA** (dulu
+   belum pernah bisa) — dipakai untuk memulihkan produk yang sempat
+   terhapus saat pengujian paralel; `upsert` dengan `update:{}` sehingga
+   data yang sudah ada tidak ditimpa.
+4. `npx tsc --noEmit` → **0 error** (penyesuaian tipe kecil pasca-generate:
+   anotasi `tx: typeof prisma` di `lib/booking.ts` & `lib/admin.ts` dihapus
+   agar overload `$transaction` cocok — runtime tidak berubah; anotasi
+   `Uint8Array<ArrayBuffer>` di `lib/auth.ts`).
+5. `npx eslint app components lib context types` → **0 error** (2 warning
+   lama: `<img>` di ProductImage & unused directive di lib/prisma.ts —
+   bukan dari sesi ini).
+6. `npx next build` → **sukses penuh** ("Compiled successfully", lolos
+   TypeScript, 21 route ter-generate — route admin jadi **Dynamic** karena
+   dicek cookie; halaman customer tetap static kecuali pakai searchParams).
+7. **Uji end-to-end lewat HTTP ke dev server (± 33 skenario) — semuanya
+   lolos**, antara lain: login salah → 401, login benar → 200 + cookie;
+   `/admin/dashboard` tanpa cookie → redirect 307 ke login, dengan cookie →
+   200; API admin tanpa cookie → 401; CRUD kategori (buat, rename, hapus,
+   tolak hapus berisi produk); CRUD produk (buat, PATCH, hapus, tolak hapus
+   berbooking); upload gambar (201 + file terunduh 200, tolak tipe salah →
+   400, tolak tanpa login → 401); booking customer (stok berkurang sesuai
+   jumlah, total benar: 2 unit × 3 hari × Rp25.000 = Rp150.000); link WA
+   memakai nomor dari env & pesan berisi semua field yang diminta; transisi
+   status (lompat/final/status ngawur ditolak 400); **cancel → stok
+   kembali** (17 → 20); logout → 303 + cookie terhapus; tombol
+   "Sewa Sekarang" & posisi info stok terverifikasi dari HTML hasil SSR.
+
+### Belum diverifikasi / catatan jujur
+- **Tampilan visual belum dilihat langsung** — tool browser desktop tidak
+  terhubung di sesi ini; verifikasi dilakukan lewat respons HTTP + HTML
+  hasil SSR. Cek sekali dengan mata di browser (terutama layout admin di
+  HP & desktop) sebelum demo klien.
+- Upload gambar menyimpan file ke `public/` saat runtime — normal untuk
+  `next dev`/`next start` lokal, tapi **tidak akan bertahan di serverless**
+  (mis. Vercel); di luar scope demo lokal.
+- **Catatan pengerjaan paralel:** sesi lain sempat me-restyle tampilan
+  beberapa halaman customer & admin (± 17:06–17:18) dan menambah baris
+  `# demo-outdoor` di README — perubahan itu tidak saya sentuh. Selama
+  pengujian, 8 produk seed sempat terhapus (kemungkinan lewat uji klik CRUD
+  di sesi itu) → dikembalikan lewat `npx prisma db seed`.
+- **Isi database berubah dinamis** — sesi paralel (satu lagi) masih
+  aktif menguji CRUD saat pengecekan terakhir: sisa 6 produk (5 produk
+  seed sempat terhapus lagi), ada produk uji `carrier-eiger-60l-2`
+  (bukti suffix slug anti-bentrok bekerja), dan 2 booking uji milik
+  user. Untuk **mengembalikan ke state bersih** (10 produk + 5
+  kategori, data yang ada tidak ditimpa), jalankan:
+  `npx prisma db seed`. Booking uji milik saya sendiri sudah
+  dibersihkan semua dan stok dikembalikan.
+
+---
+
 ## 5. File & Folder Penting
 
 ```
 tapak-outdoor-rental/
 ├── PROJECT_CONTEXT.md          ← file ini
 ├── README.md                   ← instruksi setup & catatan Prisma
-├── .env / .env.example         ← DATABASE_URL="file:./dev.db"
+├── .env / .env.example         ← DATABASE_URL + ADMIN_EMAIL/ADMIN_PASSWORD/
+│                                  AUTH_SECRET/WHATSAPP_ADMIN_NUMBER (.env dibuat sesi ini)
 ├── prisma/
-│   ├── schema.prisma            ← schema ASLI (User, Category, Product, Booking, BookingItem)
-│   ├── seed.ts                  ← seed data: 5 kategori + 10 produk
-│   ├── dev.db                   ← database SQLite, migration + seed sudah diterapkan
+│   ├── schema.prisma            ← schema ASLI (User, Category, Product, Booking, BookingItem) — TIDAK berubah sejak Phase 2
+│   ├── seed.ts                  ← seed data: 5 kategori + 10 produk (PERTAMA KALI bisa dijalankan, lihat Bagian 4e)
+│   ├── dev.db                   ← database SQLite, migration + seed sudah diterapkan (isi terkini: 10 produk, 5 kategori, 1 booking demo)
 │   └── migrations/
 │       ├── migration_lock.toml
 │       └── 20260922065742_init_schema/
 │           └── migration.sql    ← dibuat manual (lihat Bagian 8)
 ├── app/
-│   ├── layout.tsx               ← root layout, sekarang bungkus <CartProvider>
-│   ├── globals.css              ← palet brand + token krem/kontur (Phase 4-6)
+│   ├── layout.tsx               ← root layout, bungkus <CartProvider>
+│   ├── globals.css              ← palet brand + token krem/kontur (di-restyle sesi paralel)
 │   ├── (customer)/
 │   │   ├── layout.tsx           ← bungkus Navbar + Footer
 │   │   ├── page.tsx             ← homepage ASLI (Phase 4)
 │   │   ├── catalog/page.tsx     ← katalog + search + filter ASLI (Phase 5)
-│   │   ├── product/[slug]/page.tsx ← detail produk ASLI (Phase 6)
+│   │   ├── product/[slug]/page.tsx ← detail produk (Phase 6; sesi ini info stok dipindah ke bawah stepper)
 │   │   ├── cart/page.tsx        ← keranjang ASLI (Phase 6)
 │   │   └── booking/
 │   │       ├── page.tsx         ← ASLI (Phase 7): form booking customer
-│   │       └── success/page.tsx ← ASLI (Phase 7): ringkasan booking
+│   │       └── success/page.tsx ← ASLI (Phase 7) + TOMBOL WA (Phase 8)
 │   ├── admin/
-│   │   ├── layout.tsx           ← layout admin, BELUM ada proteksi auth
-│   │   ├── login/page.tsx       ← placeholder → Phase 9
-│   │   ├── dashboard/page.tsx   ← placeholder → Phase 10
-│   │   ├── products/page.tsx    ← placeholder → Phase 10
-│   │   ├── categories/page.tsx  ← placeholder → Phase 10
-│   │   └── bookings/page.tsx    ← placeholder → Phase 11
+│   │   ├── layout.tsx           ← shell/header untuk semua /admin
+│   │   ├── login/page.tsx       ← ASLI (Phase 9): login admin
+│   │   └── (panel)/             ← route group TERLINDUNGI login (URL tidak berubah)
+│   │       ├── layout.tsx       ← cek session → redirect /admin/login + AdminNav (logout)
+│   │       ├── dashboard/page.tsx    ← ASLI (Phase 10): kartu ringkasan + booking terbaru
+│   │       ├── products/page.tsx     ← ASLI (Phase 10): CRUD produk + upload gambar
+│   │       ├── categories/page.tsx   ← ASLI (Phase 10): CRUD kategori
+│   │       └── bookings/
+│   │           ├── page.tsx          ← ASLI (Phase 11): tabel semua booking
+│   │           └── [id]/page.tsx     ← ASLI (Phase 11): detail + ubah status
 │   └── api/
-│       ├── products/.gitkeep    ← masih kosong (Phase 5 pakai Server Component langsung, bukan API route)
-│       ├── categories/.gitkeep  ← kosong, diisi Phase 10
-│       ├── bookings/route.ts    ← BARU (Phase 7): POST buat booking baru (customer saja)
-│       └── auth/.gitkeep        ← kosong, diisi Phase 9
+│       ├── auth/login/route.ts   ← BARU (Phase 9): POST login → set cookie session
+│       ├── auth/logout/route.ts  ← BARU (Phase 9): POST logout → hapus cookie
+│       ├── products/route.ts     ← BARU (Phase 10): GET list + POST (admin)
+│       ├── products/[id]/route.ts← BARU (Phase 10): PATCH + DELETE (admin)
+│       ├── categories/route.ts   ← BARU (Phase 10): GET list + POST (admin)
+│       ├── categories/[id]/route.ts ← BARU (Phase 10): PATCH + DELETE (admin)
+│       ├── bookings/route.ts     ← Phase 7: POST buat booking (customer saja, tak diubah)
+│       ├── bookings/[id]/route.ts← BARU (Phase 11): PATCH status (admin)
+│       └── upload/route.ts       ← BARU: upload gambar produk ke public/images/products/ (admin)
 ├── components/
-│   ├── customer/Navbar.tsx      ← AKTIF PENUH (Phase 4-6): search, badge cart, menu mobile
-│   ├── customer/Footer.tsx      ← statis (belum diubah)
-│   ├── customer/CategoryIcon.tsx    ← BARU (Phase 4-6): ikon SVG per kategori
-│   ├── customer/ProductImage.tsx    ← BARU (Phase 4-6): gambar + fallback ilustrasi
-│   ├── customer/ProductCard.tsx     ← BARU (Phase 4-6): kartu produk (katalog & homepage)
-│   ├── customer/CatalogFilters.tsx  ← BARU (Phase 5): search box + tombol kategori
-│   ├── customer/AddToCartForm.tsx   ← BARU (Phase 6): pemilih quantity + tombol cart
-│   └── ui/ComingSoon.tsx        ← masih dipakai halaman admin yang belum dikerjakan
+│   ├── customer/Navbar.tsx      ← search, badge cart, menu mobile
+│   ├── customer/Footer.tsx      ← statis
+│   ├── customer/CategoryIcon.tsx    ← ikon SVG per kategori
+│   ├── customer/ProductImage.tsx    ← gambar + fallback ilustrasi
+│   ├── customer/ProductCard.tsx     ← kartu produk (katalog & homepage)
+│   ├── customer/CatalogFilters.tsx  ← search box + tombol kategori
+│   ├── customer/AddToCartForm.tsx   ← stepper + TOMBOL "Sewa Sekarang" + info stok di bawah (sesi ini)
+│   ├── admin/AdminNav.tsx           ← BARU (Phase 9): nav panel + tombol logout
+│   ├── admin/LoginForm.tsx          ← BARU (Phase 9): form login
+│   ├── admin/StatusBadge.tsx        ← BARU (Phase 11): badge warna status booking
+│   ├── admin/BookingTable.tsx       ← BARU (Phase 11): tabel booking (dashboard + list)
+│   ├── admin/BookingStatusChanger.tsx ← BARU (Phase 11): tombol transisi status
+│   ├── admin/ProductsManager.tsx    ← BARU (Phase 10): CRUD produk + upload gambar
+│   ├── admin/CategoriesManager.tsx  ← BARU (Phase 10): CRUD kategori
+│   └── ui/ComingSoon.tsx        ← sisa placeholder, tidak lagi dipakai route manapun
 ├── context/
-│   └── CartContext.tsx          ← DIISI PENUH (Phase 6, sebelumnya kerangka kosong)
+│   └── CartContext.tsx          ← DIISI PENUH (Phase 6)
 ├── lib/
-│   ├── prisma.ts                ← Prisma Client singleton (belum diubah)
-│   ├── catalog.ts               ← BARU (Phase 4-6): semua query Prisma untuk katalog
-│   ├── booking.ts               ← BARU (Phase 7): validasi, kalkulasi harga, transaksi booking
-│   ├── utils.ts                 ← formatRupiah()
-│   └── auth.ts                  ← KERANGKA SAJA, kosong. Logic asli Phase 9
+│   ├── prisma.ts                ← Prisma Client singleton
+│   ├── catalog.ts               ← query Prisma untuk katalog (Phase 4-6)
+│   ├── booking.ts               ← validasi, kalkulasi harga, transaksi booking (Phase 7; tipe tx diperbaiki)
+│   ├── utils.ts                 ← formatRupiah() + formatTanggal() (ditambah sesi ini)
+│   ├── auth.ts                  ← DIISI PENUH (Phase 9): session HMAC + verifikasi credential
+│   ├── admin.ts                 ← BARU (Phase 10-11): stats, CRUD, ubah status booking
+│   └── whatsapp.ts              ← BARU (Phase 8): nomor admin dari env + isi pesan + link wa.me
 └── types/
-    └── index.ts                 ← BookingStatus union type + label (Phase 2)
+    └── index.ts                 ← BookingStatus + label + BOOKING_STATUS_TRANSITIONS (Phase 2 & 11)
 ```
 
 ---
@@ -485,9 +665,22 @@ disimpan sebagai `String`. Nilai yang valid dijaga lewat TypeScript di
 PENDING | CONFIRMED | ONGOING | COMPLETED | CANCELLED
 ```
 
-Validasi runtime (menolak nilai selain 5 ini) akan ditambahkan di API
-route handler pada **Phase 7** (saat booking dibuat) dan **Phase 11**
-(saat admin mengubah status).
+**Validasi runtime sudah aktif**: `POST /api/bookings` (Phase 7) menolak
+nilai selain 5 ini, dan `PATCH /api/bookings/[id]` (Phase 11) selain
+menolak nilai ngawur juga mengecek **peta transisi** di
+`BOOKING_STATUS_TRANSITIONS` (`types/index.ts`):
+
+```
+PENDING   → CONFIRMED | CANCELLED
+CONFIRMED → ONGOING | CANCELLED
+ONGOING   → COMPLETED | CANCELLED
+COMPLETED → (final)
+CANCELLED → (final)
+```
+
+`updateBookingStatus` (`lib/admin.ts`) menjalankan cek + update di satu
+transaksi Prisma, dan **mengembalikan stok produk saat booking
+di-CANCELLED** (CANCELLED bersifat final → stok mustahil balik dua kali).
 
 ### Migration
 
@@ -569,12 +762,63 @@ route handler pada **Phase 7** (saat booking dibuat) dan **Phase 11**
    **Tidak berdampak ke kamu** — struktur migration folder-nya
    mengikuti format resmi Prisma, jadi `prisma migrate dev` di lokal
    akan tetap mengenalinya dengan benar.
+   *(Catatan: kendala ini **sudah teratasi** pada sesi Phase 8–11 —
+   `prisma generate`, `validate`, maupun `db seed` kini berjalan normal;
+   lihat update di Bagian 8.)*
+10. **Auth admin tanpa library eksternal** — credential dari env
+    (`ADMIN_EMAIL`/`ADMIN_PASSWORD`), session = cookie HttpOnly
+    `tapak_admin_session` berisi payload yang ditandatangani
+    HMAC-SHA256 (secret: `AUTH_SECRET`) via Web Crypto bawaan Node/Edge.
+    Alasan: tidak menambah dependency, tidak perlu tabel session, dan
+    tetap aman (HttpOnly + signature + expiry 7 hari). `lib/auth.ts`
+    yang tadinya kerangka kosong diisi dengan pola ini, dan masih
+    menyediakan fallback verifikasi ke tabel `User` (hash PBKDF2) kalau
+    env credential tidak diisi.
+11. **Proteksi route admin pakai route group `(panel)` + guard di tiap
+    API handler** — `app/admin/(panel)/layout.tsx` me-redirect ke
+    `/admin/login` kalau session tidak valid (URL panel tetap
+    `/admin/...` karena group tidak ikut di path), dan setiap route
+    handler tulis admin memanggil `getAdminSession()` → 401. Dua lapis
+    ini lebih tangguh daripada mengandalkan redirect layout saja.
+12. **Slug produk/kategori dibuat saat create dan TIDAK diubah saat
+    edit** — supaya link `/product/<slug>` yang sudah dibagikan tidak
+    pecah saat admin memperbaiki nama/deskripsi. Bentrok saat create
+    ditangani dengan suffix unik (`-2`, `-3`, ...).
+13. **Upload gambar menyimpan file ke `public/images/products/` lewat
+    `fs/promises` (route `/api/upload`)** — tanpa dependency baru;
+    nama file di-slugify + suffix unik (anti path traversal), tipe
+    dibatasi ke JPG/PNG/WebP/GIF & maks 2 MB. Ini cocok untuk demo
+    lokal/`next start`, tapi **tidak cocok untuk serverless** (file
+    hilang saat container restart) — trade-off yang disadari dan
+    diterima untuk scope demo ini.
+14. **Cancel booking = restok + status final dalam satu transaksi**
+    (`updateBookingStatus` di `lib/admin.ts`) — stok dikembalikan hanya
+    saat transisi ke `CANCELLED`, dan karena `CANCELLED`/`COMPLETED`
+    bersifat final (dicek `BOOKING_STATUS_TRANSITIONS`), stok tidak
+    mungkin dipulihkan dua kali walau request diulang.
+15. **Tombol "Sewa Sekarang" tetap menulis ke `CartContext`** sebelum
+    langsung menuju `/booking` — form booking dibangun dari cart, jadi
+    alur "tanpa keranjang" diwujudkan sebagai langkah tunggal (tambah +
+    pindah halaman), bukan membangun state booking terpisah. Dari sudut
+    pandang pengguna: satu klik dari halaman produk langsung ke form
+    booking, tanpa mampir halaman keranjang.
 
 ---
 
 ## 8. Masalah / Error yang Belum Selesai
 
-⚠️ **PENTING — baca ini sebelum lanjut:**
+> **UPDATE (sesi Phase 8–11): SEMUA kendala di bawah ini SUDAH
+> TERATASI.** Setelah `npm install` sukses dijalankan (registry mirror),
+> `@prisma/client` ter-generate otomatis lewat `postinstall`, lalu
+> `npx prisma generate`, `npx prisma validate`, dan bahkan
+> `npx prisma db seed` **semuanya berjalan normal** (engine binary
+> ikut terunduh). `npx tsc --noEmit` → 0 error, `npx eslint` → 0 error,
+> `npx next build` → sukses penuh 21 route, plus ± 33 skenario uji
+> end-to-end via HTTP lulus semua (rincian di **Bagian 4e**).
+> Isi di bawah dipertahankan sebagai **arsip riwayat masalah** sesi
+> awal.
+
+⚠️ **PENTING — baca ini sebelum lanjut:** *(arsip, lihat update di atas)*
 
 - **Semua perintah Prisma CLI (`generate`, `validate`, `format`,
   `migrate dev`, `db seed`) BELUM PERNAH BERHASIL dijalankan di
@@ -627,54 +871,67 @@ route handler pada **Phase 7** (saat booking dibuat) dan **Phase 11**
 
 ## 9. Langkah Berikutnya
 
-**WAJIB dilakukan di lokal sebelum menunjukkan demo ke klien** — frontend
-customer (Phase 4-7, termasuk booking) sudah ditulis lengkap dan lolos
-`tsc`/`eslint`/Turbopack compile di sandbox, tapi **belum pernah
-benar-benar dijalankan** dengan Prisma Client asli (lihat Bagian 8:
-sandbox ini tidak bisa mengunduh engine binary Prisma dari
-`binaries.prisma.sh`). Jalankan:
+**Status: seluruh fitur inti (Phase 1–11) sudah selesai ditulis dan
+sudah diverifikasi otomatis** — `tsc` 0 error, `eslint` 0 error,
+`prisma validate/generate/db seed` jalan, `next build` sukses penuh, dan
+± 33 skenario uji end-to-end via HTTP lulus semua (rincian di Bagian
+4e). Sisa langkah tinggal verifikasi visual + persiapan demo.
+
+### Wajib — cek manual di browser (belum bisa dilakukan dari sesi AI)
 ```bash
-npm install
-npx prisma generate
-npx prisma validate
-npm run dev
+npm install     # kalau belum (sudah dilakukan; postinstall generate Prisma Client otomatis)
+npm run dev     # buka http://localhost:3000
 ```
 Lalu cek manual di browser:
 - `/` — homepage, kategori & produk unggulan muncul
-- `/catalog` — semua 10 produk muncul, coba search "tenda" dan filter
-  kategori "Carrier", coba kombinasi search+kategori sekaligus
-- `/product/tenda-dome-konsina-4-orang` (atau slug produk lain) — detail
-  produk, coba ubah quantity dan tambah ke keranjang
+- `/catalog` — 10 produk seed muncul; coba search "tenda", filter
+  kategori "Carrier", dan kombinasi keduanya sekaligus
+- `/product/tenda-dome-konsina-4-orang` (atau slug produk lain) —
+  pastikan stepper quantity dibatasi sisa stok, info **"Tersedia N
+  unit" berada DI BAWAH pemilih jumlah** (layout ala online shop), dan
+  ada 3 tombol: **Tambah ke Keranjang**, **Sewa Sekarang** (langsung
+  lompat ke `/booking` tanpa mampir halaman keranjang), Buka Keranjang
 - `/cart` — item yang ditambahkan muncul, coba ubah quantity/hapus,
   reload halaman untuk pastikan keranjang tidak hilang (localStorage)
-- `/booking` — **BARU Phase 7**, ini yang paling penting dicek: isi
-  nama, WhatsApp, tanggal mulai/selesai, catatan, pastikan total
-  harga di preview berubah sesuai jumlah hari, submit, lalu pastikan
-  redirect ke `/booking/success?id=...` dan datanya cocok dengan yang
-  diisi. Cek juga: submit dengan keranjang kosong (harus diarahkan ke
-  katalog), submit dengan quantity melebihi stok (harus ditolak
-  dengan pesan error dari server), dan buka ulang link
-  `/booking/success?id=...` yang sama (harus tetap bisa dibuka walau
-  keranjang sudah kosong).
-- Cek tampilan di lebar layar HP (~375px) dan desktop
+- `/booking` — isi nama, WhatsApp, tanggal mulai/selesai, catatan,
+  pastikan total harga di preview berubah sesuai jumlah hari, submit,
+  lalu pastikan redirect ke `/booking/success?id=...` dan datanya cocok.
+  Cek juga: keranjang kosong (harus diarahkan ke katalog), quantity
+  melebihi stok (harus ditolak dengan pesan error server), dan buka
+  ulang link `/booking/success?id=...` walau keranjang sudah kosong.
+  Dari halaman ringkasan ini, tes **tombol "Kirim ke WhatsApp Admin"**:
+  pastikan `WHATSAPP_ADMIN_NUMBER` terisi di `.env`, lalu cek pesan
+  `wa.me` berisi nama, nomor WA, produk+jumlah, tanggal, durasi, total
+- **Login admin**: `http://localhost:3000/admin/login` —
+  `admin@tapak.local` / `admin12345` (sesuaikan via env
+  `ADMIN_EMAIL` / `ADMIN_PASSWORD`):
+  - `/admin/dashboard` — 4 kartu ringkasan (produk, kategori, booking,
+    pending) + tabel booking terbaru
+  - `/admin/products` — tambah produk: coba **upload gambar** (file
+    masuk ke `public/images/products/`, preview tampil, simpan → muncul
+    di katalog), edit harga/stok, hapus (produk yang pernah dibooking
+    harus ditolak dengan pesan jelas)
+  - `/admin/categories` — tambah/edit/hapus kategori (yang masih
+    berisi produk harus ditolak)
+  - `/admin/bookings` — buka detail booking, ubah status PENDING →
+    CONFIRMED → ONGOING → COMPLETED, dan tes tombol Batalkan (cek stok
+    produk kembali setelah cancel)
+  - **Logout** di nav admin, lalu akses ulang `/admin/dashboard`
+    (harus redirect ke login)
+- Cek tampilan di lebar layar HP (~375px) dan desktop — **bagian ini
+  belum terverifikasi otomatis** (tool browser tidak terhubung di sesi
+  AI; lihat catatan jujur Bagian 4e)
 
-Kalau ada error runtime yang **tidak** disebabkan Prisma Client belum
-di-generate, beri tahu pesan errornya persis di sesi berikutnya.
+Kalau ada error runtime, beri tahu pesan errornya persis di sesi
+berikutnya.
 
-**Opsi lanjutan setelah itu:**
-- Lanjut ke **Phase 8 lanjutan — konfirmasi WhatsApp otomatis**
-  (misal tombol "Kirim ke WhatsApp Admin" di halaman ringkasan yang
-  membuka `wa.me` dengan pesan pre-filled berisi detail booking) —
-  saat ini ringkasan sudah ada tapi belum ada integrasi WA aktif,
-  atau
-- Lanjut ke **Phase 9 — Admin authentication**, lalu **Phase 10/11**
-  (dashboard admin, CRUD produk/kategori, kelola booking — termasuk
-  ubah status booking dari `PENDING` ke status lain), atau
-- Tambahkan foto produk asli ke `/public/images/products/` (lihat
-  nama file yang diharapkan di `prisma/seed.ts`) — `ProductImage.tsx`
-  akan otomatis memakainya tanpa perlu ubah kode, atau
-- Kerjakan **Phase 3** (data Booking/BookingItem dummy) kalau ingin
-  ada contoh data untuk testing tampilan admin nanti di Phase 11 —
-  **catatan:** sekarang sudah ada jalur asli untuk membuat booking
-  (Phase 7), jadi Phase 3 ini jadi kurang penting kecuali butuh data
-  contoh dalam jumlah banyak sekaligus untuk testing.
+**Opsional / ide lanjutan:**
+- Ganti kredensial demo, dan isi foto produk asli — bisa lewat
+  **upload gambar bawaan panel admin** (lebih praktis), atau taruh file
+  manual di `public/images/products/` sesuai nama di `prisma/seed.ts`
+- Tambahkan data booking dummy jumlah banyak lewat **Phase 3**
+  (opsional — jalur booking asli sudah ada sejak Phase 7, dan kini
+  sudah ada 1 booking demo di database)
+- Bila kelak deploy ke serverless (mis. Vercel): ganti penyimpanan
+  upload gambar ke object storage (lihat keputusan #13) — di luar scope
+  demo lokal ini.

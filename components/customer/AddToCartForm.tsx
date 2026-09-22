@@ -2,8 +2,10 @@
 
 /**
  * Form tambah-ke-keranjang di halaman detail produk.
- * Pemilih quantity stepper modern, info stok real-time,
- * dan tombol direct consultation WhatsApp.
+ * Pemilih quantity stepper modern, info stok real-time di bawah
+ * stepper (pola online shop), tombol "Sewa Sekarang" untuk langsung
+ * ke form booking tanpa lewat halaman keranjang, dan tombol direct
+ * consultation WhatsApp.
  */
 
 import { useRouter } from "next/navigation";
@@ -42,6 +44,28 @@ export default function AddToCartForm({
     );
     setJustAdded(true);
     setTimeout(() => setJustAdded(false), 2200);
+  }
+
+  /**
+   * "Sewa Sekarang" — opsi langsung ala online shop: produk & jumlah
+   * yang dipilih dimasukkan ke keranjang (karena form booking membaca
+   * CartContext), lalu user LANGSUNG dibawa ke /booking — tanpa
+   * mampir ke halaman keranjang dulu.
+   */
+  function handleRentNow() {
+    addItem(
+      {
+        productId: product.id,
+        slug: product.slug,
+        name: product.name,
+        image: product.image,
+        categorySlug: product.category.slug,
+        pricePerDay: product.pricePerDay,
+        stock: product.stock,
+      },
+      quantity
+    );
+    router.push("/booking");
   }
 
   if (habis) {
@@ -121,6 +145,24 @@ export default function AddToCartForm({
         </div>
       </div>
 
+      {/* Info stok — diletakkan DI BAWAH pemilih jumlah (bukan di atas
+          form), mengikuti pola halaman online shop. */}
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="font-medium text-foreground-muted">
+          Ketersediaan saat ini:
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-0.5 font-bold text-emerald-800">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />
+          Tersedia {product.stock} unit
+        </span>
+        {alreadyInCart > 0 && (
+          <span className="text-foreground-muted">
+            — {alreadyInCart} sudah di keranjang, sisa maks.{" "}
+            {remainingStock} untukmu
+          </span>
+        )}
+      </div>
+
       {/* Action Buttons */}
       <div className="flex flex-col sm:flex-row gap-3">
         <button
@@ -147,6 +189,16 @@ export default function AddToCartForm({
               <span>Tambah ke Keranjang</span>
             </>
           )}
+        </button>
+
+        {/* Opsi langsung: tanpa lewat halaman keranjang */}
+        <button
+          type="button"
+          onClick={handleRentNow}
+          className="flex-1 inline-flex items-center justify-center gap-2 rounded-full bg-brand-primary px-6 py-3.5 text-sm font-bold text-white shadow-md transition-all hover:bg-brand-primary-dark hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0"
+        >
+          <span>Sewa Sekarang</span>
+          <span aria-hidden="true">→</span>
         </button>
 
         <button
